@@ -12,6 +12,9 @@ ENV/
 # FastAPI
 .env
 
+# Vector Database
+chroma_db/
+
 # IDEs
 .vscode/
 .idea/

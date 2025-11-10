@@ -1,0 +1,106 @@
+name: 배포 파이프라인
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: h-sw-h-back
+  ECS_SERVICE: h-sw-h-back-service
+  ECS_CLUSTER: h-sw-h-back-cluster
+  CONTAINER_NAME: h-sw-h-back
+
+jobs:
+  # ============================================
+  # Docker 이미지 빌드 및 푸시
+  # ============================================
+  build:
+    name: 도커 이미지 빌드
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: 코드 체크아웃
+      uses: actions/checkout@v4
+
+    - name: AWS 인증 설정
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Amazon ECR 로그인
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: 도커 이미지 빌드 및 ECR 푸시
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+    - name: 이미지 정보 출력
+      run: |
+        echo "이미지 푸시 완료: ${{ steps.build-image.outputs.image }}"
+
+  # ============================================
+  # AWS ECS 배포
+  # ============================================
+  deploy:
+    name: AWS ECS 배포
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: 코드 체크아웃
+      uses: actions/checkout@v4
+
+    - name: AWS 인증 설정
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Amazon ECR 로그인
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Task Definition 다운로드
+      run: |
+        aws ecs describe-task-definition \
+          --task-definition ${{ env.ECS_SERVICE }} \
+          --query taskDefinition > task-definition.json
+
+    - name: 새 이미지로 Task Definition 업데이트
+      id: task-def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        task-definition: task-definition.json
+        container-name: ${{ env.CONTAINER_NAME }}
+        image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+    - name: ECS 서비스 배포
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+      with:
+        task-definition: ${{ steps.task-def.outputs.task-definition }}
+        service: ${{ env.ECS_SERVICE }}
+        cluster: ${{ env.ECS_CLUSTER }}
+        wait-for-service-stability: true
+
+    - name: 배포 성공 알림
+      if: success()
+      run: |
+        echo "🚀 배포 완료!"
+        echo "이미지: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
