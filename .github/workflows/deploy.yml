@@ -36,28 +36,17 @@ jobs:
       - name: 🔑 ECR 로그인
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-      
-      - name: 🧩 캐시 로드
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
 
-      - name: 🏗️ Docker 이미지 빌드 & 푸시
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: |
-          docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} .
-          docker tag $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} \
-                     $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_LATEST }}
-          docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
-          docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_LATEST }}
-      
-      - name: 🧩 캐시 저장
-        if: always()
-        run: mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+      - name: 🏗️ Docker 이미지 빌드 & 푸시 (캐시 사용)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_LATEST }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy_ec2:
     name: 🌐 EC2 서버에 Docker Compose 배포
@@ -94,14 +83,15 @@ jobs:
 
             echo "✅ Pull 완료, Compose 실행 중..."
             cd /home/${{ secrets.EC2_USERNAME }}/apps/hf-back
-
-            cat > .env <<'EOF'
-            APP_NAME=FastAPI Application
-            DEBUG=True
-            HOST=0.0.0.0
-            PORT=8000
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-            EOF
+            docker compose pull
+            
+            cat > .env <<EOF
+APP_NAME=FastAPI Application
+DEBUG=True
+HOST=0.0.0.0
+PORT=8000
+OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+EOF
 
             docker compose up -d
             echo "✅ 배포 완료!"
