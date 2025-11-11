@@ -8,8 +8,9 @@ on:
 env:
   AWS_REGION: ap-northeast-2
   ECR_REPOSITORY: image_hub
-  IMAGE_NAME: hf-back-fastapi
+  IMAGE_NAME: hi79-back
   IMAGE_TAG: ${{ github.sha }}
+  DOCKER_NETWORK: appnet 
 
 jobs:
   build_and_push:
@@ -64,6 +65,7 @@ jobs:
             AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}
             ECR=${AWS_ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
             IMAGE=${ECR}/${{ env.ECR_REPOSITORY }}:latest
+            NETWORK=${{ env.DOCKER_NETWORK }}
 
             echo "🔐 ECR 로그인"
             aws ecr get-login-password --region ${{ env.AWS_REGION }} \
