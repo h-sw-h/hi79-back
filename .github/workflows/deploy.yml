@@ -89,6 +89,7 @@ jobs:
               'PORT=8000' \
               "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" \
               "DATABASE_URL=${{ secrets.DATABASE_URL }}" \
+              " REDIS_URL=redis://redis:6379/0" \
               > .env
 
             echo "🚀 새 컨테이너 실행"
