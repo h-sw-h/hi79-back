@@ -9,9 +9,9 @@ from app.config import get_settings
 class ChatSessionManager:
     """
     대화 세션 관리 (Redis 기반)
-    - TTL 30분 자동 만료
     - 메시지 히스토리 저장
     - 세션 메타데이터 관리
+    - 스케줄러를 통한 일기 생성 및 세션 정리
     """
 
     def __init__(self, redis_client: Optional[redis.Redis] = None):
@@ -28,7 +28,6 @@ class ChatSessionManager:
                 decode_responses=True  # 자동 문자열 디코딩
             )
 
-        self.session_ttl = 30 * 60  # 30분 (초 단위)
 
     def create_session(self, user_id: str) -> str:
         """
@@ -49,12 +48,10 @@ class ChatSessionManager:
 
         # 세션 메타데이터 저장 (Hash)
         self.redis.hset(session_key, mapping=session_data)
-        self.redis.expire(session_key, self.session_ttl)
 
         # 메시지 리스트 초기화 (List)
         messages_key = f"messages:{session_id}"
         self.redis.delete(messages_key)  # 혹시 모를 기존 데이터 삭제
-        self.redis.expire(messages_key, self.session_ttl)
 
         return session_id
 
@@ -90,10 +87,6 @@ class ChatSessionManager:
         # 세션 메타데이터 업데이트
         self.redis.hset(session_key, "last_activity", datetime.now().isoformat())
         self.redis.hincrby(session_key, "message_count", 1)
-
-        # TTL 갱신 (활동 시 30분 연장)
-        self.redis.expire(session_key, self.session_ttl)
-        self.redis.expire(messages_key, self.session_ttl)
 
         return True
 
@@ -157,17 +150,6 @@ class ChatSessionManager:
 
         return self.redis.hgetall(session_key)
 
-    def extend_session(self, session_id: str, minutes: int = 30):
-        """
-        세션 TTL 연장
-
-        Args:
-            session_id: 세션 ID
-            minutes: 연장할 시간 (분)
-        """
-        ttl = minutes * 60
-        self.redis.expire(f"session:{session_id}", ttl)
-        self.redis.expire(f"messages:{session_id}", ttl)
 
     # def delete_session(self, session_id: str):
     #     """
