@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from app.routers import health, chatbot, auth, chat, admin
+from app.routers import health, chatbot, auth, chat, admin, diary_view
 from app.database import engine, Base
 from app.models import db_models
 
@@ -60,6 +60,7 @@ app.include_router(chatbot.router, prefix="/api/chatbot", tags=["chatbot"])
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(chat.router)  # prefix와 tags는 router에 이미 포함
 app.include_router(admin.router)  # prefix와 tags는 router에 이미 포함
+app.include_router(diary_view.router)  # prefix와 tags는 router에 이미 포함
 
 @app.get("/")
 async def root():

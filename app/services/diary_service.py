@@ -196,7 +196,7 @@ class DiaryService:
                 collection_id = collection_row[0]
                 
                 # langchain_pg_embedding 테이블에서 직접 조회
-                # cmetadata의 user_id와 created_at으로 필터링
+                # cmetadata의 user_id와 diary_date 필터링
                 query = text("""
                     SELECT 
                         document,
@@ -204,7 +204,6 @@ class DiaryService:
                     FROM langchain_pg_embedding
                     WHERE collection_id = :collection_id
                       AND cmetadata->>'user_id' = :user_id
-                      AND cmetadata->>'type' = 'diary'
                 """)
                 
                 results = conn.execute(query, {
@@ -224,30 +223,30 @@ class DiaryService:
                     else:
                         metadata = metadata_json
                     
-                    created_at_str = metadata.get("created_at")
+                    diary_date_str = metadata.get("diary_date")
                     
-                    if created_at_str:
+                    if diary_date_str:
                         try:
                             # ISO 형식 문자열을 datetime으로 변환
-                            created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                            diary_date = datetime.fromisoformat(diary_date_str.replace('Z', '+00:00'))
                             # 타임존 정보 제거 후 비교
-                            created_at_naive = created_at.replace(tzinfo=None)
+                            diary_date_naive = diary_date.replace(tzinfo=None)
                             
                             # 최근 N일 이내인지 확인
-                            if created_at_naive >= cutoff_date:
+                            if diary_date_naive >= cutoff_date:
                                 weekly_diaries.append({
                                     "content": document_content,
                                     "metadata": metadata,
-                                    "created_at": created_at_str
+                                    "diary_date": diary_date_str
                                 })
                         except (ValueError, AttributeError) as e:
                             # 날짜 파싱 실패 시 로그만 남기고 건너뛰기
-                            print(f"날짜 파싱 실패: {created_at_str}, 오류: {e}")
+                            print(f"날짜 파싱 실패: {diary_date_str}, 오류: {e}")
                             continue
                 
                 # 날짜순 정렬 (최신순)
                 weekly_diaries.sort(
-                    key=lambda x: x.get("created_at", ""),
+                    key=lambda x: x.get("diary_date", ""),
                     reverse=True
                 )
                 
@@ -301,8 +300,8 @@ class DiaryService:
                 collection_id = collection_row[0]
                 
                 # langchain_pg_embedding 테이블에서 특정 날짜의 일기 조회
-                # created_at이 해당 날짜인 일기 찾기 (ISO 형식 문자열에서 날짜 부분만 비교)
-                # created_at이 '2025-11-12T10:30:00' 형식이므로 날짜 부분만 추출
+                # diary_date가 해당 날짜인 일기 찾기 (ISO 형식 문자열에서 날짜 부분만 비교)
+                # diary_date가 '2025-11-12T10:30:00' 형식이므로 날짜 부분만 추출
                 date_str = target_date.isoformat()  # '2025-11-12'
                 query = text("""
                     SELECT 
@@ -311,8 +310,7 @@ class DiaryService:
                     FROM langchain_pg_embedding
                     WHERE collection_id = :collection_id
                       AND cmetadata->>'user_id' = :user_id
-                      AND cmetadata->>'type' = 'diary'
-                      AND (cmetadata->>'created_at')::text LIKE :date_pattern
+                      AND (cmetadata->>'diary_date')::text LIKE :date_pattern
                     LIMIT 1
                 """)
                 
@@ -339,12 +337,12 @@ class DiaryService:
                 else:
                     metadata = metadata_json
                 
-                created_at_str = metadata.get("created_at", "")
+                diary_date_str = metadata.get("diary_date", "")
                 
                 return {
                     "content": document_content,
                     "metadata": metadata,
-                    "created_at": created_at_str
+                    "diary_date": diary_date_str
                 }
 
         except ValueError as e:

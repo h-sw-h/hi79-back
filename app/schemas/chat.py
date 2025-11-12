@@ -37,7 +37,7 @@ class DiaryEntry(BaseModel):
     """일기 항목"""
     content: str = Field(..., description="일기 내용")
     metadata: dict = Field(..., description="일기 메타데이터")
-    created_at: str = Field(..., description="생성 일시 (ISO 형식)")
+    diary_date: str = Field(..., description="일기 날짜 (YYYY-MM-DD, 06:00 기준)")
 
 class WeeklyDiariesData(BaseModel):
     """일주일치 일기 조회 데이터"""
