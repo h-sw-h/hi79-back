@@ -50,3 +50,9 @@ class WeeklyDiariesResponse(BaseModel):
     success: bool = Field(..., description="성공 여부")
     message: str = Field(..., description="응답 메시지")
     data: WeeklyDiariesData = Field(..., description="일기 조회 데이터")
+
+class DiaryByDateResponse(BaseModel):
+    """특정 날짜 일기 조회 응답"""
+    success: bool = Field(..., description="성공 여부")
+    message: str = Field(..., description="응답 메시지")
+    data: Optional[DiaryEntry] = Field(None, description="일기 데이터 (없으면 None)")

@@ -1,5 +1,6 @@
 # routers/chat.py
 from fastapi import APIRouter, HTTPException, Depends, Query
+from datetime import datetime
 from app.schemas.chat import (
     SessionCreateRequest,
     SessionCreateResponse,
@@ -9,7 +10,8 @@ from app.schemas.chat import (
     SessionEndResponse,
     WeeklyDiariesResponse,
     WeeklyDiariesData,
-    DiaryEntry
+    DiaryEntry,
+    DiaryByDateResponse
 )
 from app.services.chat_session import get_session_manager, ChatSessionManager
 from app.services.diary_service import get_diary_service, DiaryService
@@ -238,4 +240,66 @@ async def get_weekly_diaries(
         raise
     except Exception as e:
         print(f"일기 조회 실패: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"일기 조회 실패: {str(e)}")
+
+
+@router.get("/diaries/date/{date}", response_model=DiaryByDateResponse, summary="특정 날짜 일기 조회")
+async def get_diary_by_date(
+    date: str,
+    user_id: str = Depends(get_current_user_id),
+    diary_service: DiaryService = Depends(get_diary_service)
+):
+    """
+    특정 날짜의 일기 조회
+    
+    하루에 일기는 하나입니다.
+    
+    **파라미터:**
+    - date: 조회할 날짜 (YYYY-MM-DD 형식, 예: 2025-11-12)
+    
+    **응답:**
+    - data: 일기 데이터 (없으면 null)
+    """
+    try:
+        # 날짜 형식 검증
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(
+                status_code=400, 
+                detail="날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요. (예: 2025-11-12)"
+            )
+        
+        # 특정 날짜의 일기 조회
+        diary_dict = diary_service.get_diary_by_date(
+            user_id=user_id,
+            date=date
+        )
+        
+        if not diary_dict:
+            return DiaryByDateResponse(
+                success=True,
+                message=f"{date} 날짜의 일기를 찾을 수 없습니다.",
+                data=None
+            )
+        
+        # DiaryEntry 객체로 변환
+        diary = DiaryEntry(
+            content=diary_dict["content"],
+            metadata=diary_dict["metadata"],
+            created_at=diary_dict["created_at"]
+        )
+        
+        return DiaryByDateResponse(
+            success=True,
+            message=f"{date} 날짜의 일기를 조회했습니다.",
+            data=diary
+        )
+    
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print(f"특정 날짜 일기 조회 실패: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"일기 조회 실패: {str(e)}")
