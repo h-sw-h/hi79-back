@@ -1,6 +1,6 @@
 # services/diary_service.py
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from langchain_postgres import PGVector
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
@@ -155,6 +155,206 @@ class DiaryService:
 
         except:
             return 0
+
+    def get_weekly_diaries(
+        self,
+        user_id: str,
+        days: int = 7
+    ) -> List[Dict]:
+        """
+        일주일치 일기 조회 (최근 N일)
+        langchain_pg_embedding 테이블의 document 컬럼에서 직접 조회
+
+        Args:
+            user_id: 사용자 ID
+            days: 조회할 일수 (기본 7일)
+
+        Returns:
+            일기 리스트 (content + metadata), 날짜순 정렬 (최신순)
+        """
+        try:
+            from sqlalchemy import create_engine, text
+            import json
+            
+            # 날짜 범위 계산 (현재 시간 기준)
+            now = datetime.now()
+            cutoff_date = now - timedelta(days=days)
+            
+            # collection_id 가져오기
+            engine = create_engine(self.database_url)
+            with engine.connect() as conn:
+                # collection_id 조회
+                result = conn.execute(text("""
+                    SELECT uuid FROM langchain_pg_collection WHERE name = :collection_name LIMIT 1
+                """), {"collection_name": self.collection_name})
+                collection_row = result.fetchone()
+                
+                if not collection_row:
+                    print(f"Collection '{self.collection_name}'를 찾을 수 없습니다.")
+                    return []
+                
+                collection_id = collection_row[0]
+                
+                # langchain_pg_embedding 테이블에서 직접 조회
+                # cmetadata의 user_id와 created_at으로 필터링
+                query = text("""
+                    SELECT 
+                        document,
+                        cmetadata
+                    FROM langchain_pg_embedding
+                    WHERE collection_id = :collection_id
+                      AND cmetadata->>'user_id' = :user_id
+                      AND cmetadata->>'type' = 'diary'
+                """)
+                
+                results = conn.execute(query, {
+                    "collection_id": collection_id,
+                    "user_id": str(user_id)
+                })
+                
+                # 날짜 필터링 및 포맷팅
+                weekly_diaries = []
+                for row in results:
+                    document_content = row[0]  # document 컬럼
+                    metadata_json = row[1]  # cmetadata 컬럼 (JSONB)
+                    
+                    # JSONB를 딕셔너리로 변환
+                    if isinstance(metadata_json, str):
+                        metadata = json.loads(metadata_json)
+                    else:
+                        metadata = metadata_json
+                    
+                    created_at_str = metadata.get("created_at")
+                    
+                    if created_at_str:
+                        try:
+                            # ISO 형식 문자열을 datetime으로 변환
+                            created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                            # 타임존 정보 제거 후 비교
+                            created_at_naive = created_at.replace(tzinfo=None)
+                            
+                            # 최근 N일 이내인지 확인
+                            if created_at_naive >= cutoff_date:
+                                weekly_diaries.append({
+                                    "content": document_content,
+                                    "metadata": metadata,
+                                    "created_at": created_at_str
+                                })
+                        except (ValueError, AttributeError) as e:
+                            # 날짜 파싱 실패 시 로그만 남기고 건너뛰기
+                            print(f"날짜 파싱 실패: {created_at_str}, 오류: {e}")
+                            continue
+                
+                # 날짜순 정렬 (최신순)
+                weekly_diaries.sort(
+                    key=lambda x: x.get("created_at", ""),
+                    reverse=True
+                )
+                
+                return weekly_diaries
+
+        except Exception as e:
+            print(f"일주일치 일기 조회 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    def get_diary_by_date(
+        self,
+        user_id: str,
+        date: str
+    ) -> Optional[Dict]:
+        """
+        특정 날짜의 일기 조회
+        langchain_pg_embedding 테이블의 document 컬럼에서 직접 조회
+
+        Args:
+            user_id: 사용자 ID
+            date: 조회할 날짜 (YYYY-MM-DD 형식)
+
+        Returns:
+            일기 데이터 (없으면 None)
+        """
+        try:
+            from sqlalchemy import create_engine, text
+            import json
+            
+            # 날짜 파싱 및 검증
+            try:
+                target_date = datetime.strptime(date, "%Y-%m-%d").date()
+            except ValueError:
+                raise ValueError(f"날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요: {date}")
+            
+            # collection_id 가져오기
+            engine = create_engine(self.database_url)
+            with engine.connect() as conn:
+                # collection_id 조회
+                result = conn.execute(text("""
+                    SELECT uuid FROM langchain_pg_collection WHERE name = :collection_name LIMIT 1
+                """), {"collection_name": self.collection_name})
+                collection_row = result.fetchone()
+                
+                if not collection_row:
+                    print(f"Collection '{self.collection_name}'를 찾을 수 없습니다.")
+                    return None
+                
+                collection_id = collection_row[0]
+                
+                # langchain_pg_embedding 테이블에서 특정 날짜의 일기 조회
+                # created_at이 해당 날짜인 일기 찾기 (ISO 형식 문자열에서 날짜 부분만 비교)
+                # created_at이 '2025-11-12T10:30:00' 형식이므로 날짜 부분만 추출
+                date_str = target_date.isoformat()  # '2025-11-12'
+                query = text("""
+                    SELECT 
+                        document,
+                        cmetadata
+                    FROM langchain_pg_embedding
+                    WHERE collection_id = :collection_id
+                      AND cmetadata->>'user_id' = :user_id
+                      AND cmetadata->>'type' = 'diary'
+                      AND (cmetadata->>'created_at')::text LIKE :date_pattern
+                    LIMIT 1
+                """)
+                
+                # 날짜 패턴: '2025-11-12'로 시작하는 모든 시간 포함
+                date_pattern = f"{date_str}%"
+                
+                result = conn.execute(query, {
+                    "collection_id": collection_id,
+                    "user_id": str(user_id),
+                    "date_pattern": date_pattern
+                })
+                
+                row = result.fetchone()
+                
+                if not row:
+                    return None
+                
+                document_content = row[0]  # document 컬럼
+                metadata_json = row[1]  # cmetadata 컬럼 (JSONB)
+                
+                # JSONB를 딕셔너리로 변환
+                if isinstance(metadata_json, str):
+                    metadata = json.loads(metadata_json)
+                else:
+                    metadata = metadata_json
+                
+                created_at_str = metadata.get("created_at", "")
+                
+                return {
+                    "content": document_content,
+                    "metadata": metadata,
+                    "created_at": created_at_str
+                }
+
+        except ValueError as e:
+            print(f"날짜 파싱 실패: {e}")
+            raise
+        except Exception as e:
+            print(f"특정 날짜 일기 조회 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
 
 # 전역 일기 서비스 인스턴스
